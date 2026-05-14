@@ -1,4 +1,5 @@
 import os
+import certifi
 import pandas as pd
 import streamlit as st
 from pymongo import MongoClient
@@ -17,7 +18,7 @@ if not MONGO_URI:
 
 @st.cache_resource
 def get_client():
-    return MongoClient(MONGO_URI)
+    return MongoClient(MONGO_URI, tlsCAFile=certifi.where())
 
 client = get_client()
 collection = client["sample_airbnb"]["listingsAndReviews"]
