@@ -1,6 +1,5 @@
-streamlit
-pandas
-pymongo[srv]
-certifi
-plotly>=5.0,<6.0
-matplotlib
+streamlit>=1.35.0
+pymongo>=4.7.0
+pandas>=2.2.0
+plotly>=5.22.0
+numpy>=1.26.0
