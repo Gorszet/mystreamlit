@@ -24,13 +24,14 @@ SEQ_COLORS = [RED, TEAL, ORANGE, "#8B5CF6", "#F59E0B", "#10B981", "#3B82F6", DAR
 
 
 def chart_layout(**extra):
-    return dict(
+    base = dict(
         plot_bgcolor="white",
         paper_bgcolor="white",
         font=dict(color=DARK, family="Arial, sans-serif"),
         margin=dict(l=0, r=0, t=30, b=0),
-        **extra,
     )
+    base.update(extra)
+    return base
 
 
 def kpi_card(col, value: str, label: str, color: str = RED) -> None:
