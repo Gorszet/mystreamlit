@@ -473,7 +473,7 @@ with tab4:
     fig = px.bar(
         market_price,
         x="Median Price ($/night)",
-        y="Market",
+        y="market",
         orientation="h",
         color="Median Price ($/night)",
         color_continuous_scale="Oranges",
