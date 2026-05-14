@@ -349,3 +349,4 @@ st.dataframe(top, use_container_width=True, height=380)
 
 st.markdown("---")
 st.caption("Built with Streamlit · MongoDB Atlas `sample_airbnb` · Credentials loaded from environment variables / Streamlit Secrets")
+
