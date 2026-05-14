@@ -4,7 +4,6 @@ import plotly.express as px
 import plotly.graph_objects as go
 from pymongo import MongoClient
 import os
-import certifi
 
 # ── Page config ──────────────────────────────────────────────────────────────
 st.set_page_config(
@@ -41,7 +40,7 @@ def get_client():
     if not uri:
         st.error("❌ MONGODB_URI not set. Add it to `.env` (local) or Streamlit Secrets (cloud).")
         st.stop()
-    return MongoClient(uri, tlsCAFile=certifi.where(), serverSelectionTimeoutMS=8000)
+    return MongoClient(uri, serverSelectionTimeoutMS=8000)
 
 @st.cache_data(ttl=300, show_spinner="Loading data from MongoDB…")
 def load_data(limit: int = 5000) -> pd.DataFrame:
