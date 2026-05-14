@@ -3,3 +3,4 @@ pandas
 pymongo[srv]
 certifi
 plotly>=5.0,<6.0
+matplotlib
