@@ -43,7 +43,7 @@ def load_data(limit=5000):
         rows.append({
             "name": doc.get("name"),
             "property_type": doc.get("property_type"),
-            "price": float(doc.get("price", 0) or 0),
+            "price": float(str(doc.get("price", 0) or 0)),
             "bedrooms": doc.get("bedrooms", 0),
             "rating": doc.get("review_scores", {}).get("review_scores_rating"),
             "country": doc.get("address", {}).get("country"),
