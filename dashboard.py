@@ -14,7 +14,7 @@ st.set_page_config(
 )
 
 # ── Palette ───────────────────────────────────────────────────────────────────
-BG     = "#0A0A0F"
+BG     = "#FDFDFD"
 SURF   = "#12121A"
 CARD   = "#1A1A28"
 BORDER = "#2A2A3E"
