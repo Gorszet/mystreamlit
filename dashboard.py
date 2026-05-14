@@ -14,7 +14,7 @@ st.set_page_config(
 )
 
 # ── Palette ───────────────────────────────────────────────────────────────────
-BG     = "#FDFDFD"
+BG     = "#0A0A0F"
 SURF   = "#12121A"
 CARD   = "#1A1A28"
 BORDER = "#2A2A3E"
@@ -171,7 +171,7 @@ with st.sidebar:
 
     countries  = st.multiselect("Country", sorted(df["country"].dropna().unique()), default=sorted(df["country"].dropna().unique()))
     room_types = st.multiselect("Room Type", sorted(df["room_type"].dropna().unique()), default=sorted(df["room_type"].dropna().unique()))
-    price_cap  = int(df["price"].max()) or 500
+    price_cap  = int(df["price"].quantile(0.95)) or 500
     price_rng  = st.slider("Price Range ($/night)", 0, price_cap, (0, price_cap))
     min_rating = st.slider("Min Rating", 0, 100, 0)
     superhost_only = st.checkbox("Superhosts Only")
