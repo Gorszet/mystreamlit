@@ -4,9 +4,6 @@ import plotly.express as px
 import plotly.graph_objects as go
 from pymongo import MongoClient
 import os
-from dotenv import load_dotenv
-
-load_dotenv()
 
 # ── Page config ──────────────────────────────────────────────────────────────
 st.set_page_config(
