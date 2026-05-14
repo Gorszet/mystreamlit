@@ -4,6 +4,9 @@ import plotly.express as px
 import plotly.graph_objects as go
 from pymongo import MongoClient
 import os
+from dotenv import load_dotenv
+
+load_dotenv()
 
 # ── Page config ──────────────────────────────────────────────────────────────
 st.set_page_config(
@@ -179,8 +182,9 @@ with col_a:
     fig_box.update_layout(
         plot_bgcolor="#1a1a2e", paper_bgcolor="#1a1a2e",
         font_color="#ccc", showlegend=False,
-        yaxis=dict(gridcolor="#333"), xaxis=dict(gridcolor="#333"),
-        margin=dict(l=10, r=10, t=10, b=10),
+        yaxis=dict(gridcolor="#333"), xaxis=dict(gridcolor="#333", title=None),
+        margin=dict(l=40, r=20, t=20, b=40),
+        height=400,
     )
     st.plotly_chart(fig_box, use_container_width=True)
 
@@ -189,14 +193,29 @@ with col_b:
     top_props = df["property_type"].value_counts().head(8)
     fig_pie = px.pie(
         values=top_props.values, names=top_props.index,
-        color_discrete_sequence=px.colors.sequential.RdBu,
+        color_discrete_sequence=["#ff5a5f", "#fc642d", "#e8735a", "#00a699", "#007a72", "#767676", "#484848", "#2a2a2a"],
         hole=0.45,
     )
-    fig_pie.update_traces(textposition="outside", textinfo="percent+label")
+    fig_pie.update_traces(
+        textposition="inside",
+        textinfo="percent",
+        insidetextorientation="radial",
+        hovertemplate="<b>%{label}</b><br>%{percent}<extra></extra>",
+    )
     fig_pie.update_layout(
         plot_bgcolor="#1a1a2e", paper_bgcolor="#1a1a2e",
-        font_color="#ccc", showlegend=False,
-        margin=dict(l=10, r=10, t=10, b=10),
+        font_color="#ccc",
+        showlegend=True,
+        legend=dict(
+            bgcolor="#1a1a2e",
+            bordercolor="#333",
+            font=dict(size=11, color="#ccc"),
+            orientation="v",
+            x=1.02, y=0.5,
+            xanchor="left",
+            yanchor="middle",
+        ),
+        margin=dict(l=10, r=120, t=20, b=20),
     )
     st.plotly_chart(fig_pie, use_container_width=True)
 
@@ -221,9 +240,10 @@ with col_c:
     fig_bar.update_layout(
         plot_bgcolor="#1a1a2e", paper_bgcolor="#1a1a2e",
         font_color="#ccc", coloraxis_showscale=False,
-        yaxis=dict(autorange="reversed", gridcolor="#333"),
+        yaxis=dict(autorange="reversed", gridcolor="#333", tickfont=dict(size=11)),
         xaxis=dict(gridcolor="#333"),
-        margin=dict(l=10, r=10, t=10, b=10),
+        margin=dict(l=130, r=20, t=20, b=40),
+        height=420,
     )
     st.plotly_chart(fig_bar, use_container_width=True)
 
@@ -242,8 +262,9 @@ with col_d:
         font_color="#ccc",
         xaxis=dict(gridcolor="#333"),
         yaxis=dict(gridcolor="#333"),
-        legend=dict(bgcolor="#1a1a2e", bordercolor="#333"),
-        margin=dict(l=10, r=10, t=10, b=10),
+        legend=dict(bgcolor="#1a1a2e", bordercolor="#444", font=dict(size=11)),
+        margin=dict(l=40, r=20, t=20, b=40),
+        height=420,
     )
     st.plotly_chart(fig_scatter, use_container_width=True)
 
@@ -262,8 +283,10 @@ with col_e:
     fig_cancel.update_layout(
         plot_bgcolor="#1a1a2e", paper_bgcolor="#1a1a2e",
         font_color="#ccc", showlegend=False,
-        xaxis=dict(gridcolor="#333"), yaxis=dict(gridcolor="#333"),
-        margin=dict(l=10, r=10, t=10, b=10),
+        xaxis=dict(gridcolor="#333", tickangle=-25, tickfont=dict(size=11)),
+        yaxis=dict(gridcolor="#333"),
+        margin=dict(l=40, r=20, t=20, b=80),
+        height=380,
     )
     st.plotly_chart(fig_cancel, use_container_width=True)
 
@@ -277,8 +300,10 @@ with col_f:
     fig_hist.update_layout(
         plot_bgcolor="#1a1a2e", paper_bgcolor="#1a1a2e",
         font_color="#ccc", bargap=0.05,
-        xaxis=dict(gridcolor="#333"), yaxis=dict(gridcolor="#333"),
-        margin=dict(l=10, r=10, t=10, b=10),
+        xaxis=dict(gridcolor="#333"),
+        yaxis=dict(gridcolor="#333"),
+        margin=dict(l=40, r=20, t=20, b=40),
+        height=380,
     )
     st.plotly_chart(fig_hist, use_container_width=True)
 
@@ -323,8 +348,9 @@ with col_h:
             angularaxis=dict(gridcolor="#444", color="#ccc"),
         ),
         paper_bgcolor="#1a1a2e", font_color="#ccc",
-        legend=dict(bgcolor="#1a1a2e", bordercolor="#333"),
-        margin=dict(l=40, r=40, t=20, b=20),
+        legend=dict(bgcolor="#1a1a2e", bordercolor="#333", font=dict(size=12)),
+        margin=dict(l=60, r=60, t=40, b=40),
+        height=400,
     )
     st.plotly_chart(fig_radar, use_container_width=True)
 
