@@ -2,3 +2,4 @@ streamlit
 pandas
 pymongo[srv]
 certifi
+plotly
