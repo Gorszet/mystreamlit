@@ -1,11 +1,14 @@
-import os
-import certifi
+import streamlit as st
 import pandas as pd
 import plotly.express as px
 import plotly.graph_objects as go
-import streamlit as st
 from pymongo import MongoClient
+import os
+from dotenv import load_dotenv
 
+load_dotenv()
+
+# ── Page config ──────────────────────────────────────────────────────────────
 st.set_page_config(
     page_title="Airbnb Analytics Dashboard",
     page_icon="🏠",
@@ -13,539 +16,336 @@ st.set_page_config(
     initial_sidebar_state="expanded",
 )
 
-# ── Brand palette ─────────────────────────────────────────────────────────────
-RED    = "#FF5A5F"
-TEAL   = "#00A699"
-ORANGE = "#FC642D"
-DARK   = "#484848"
-GRAY   = "#767676"
-
-SEQ_COLORS = [RED, TEAL, ORANGE, "#8B5CF6", "#F59E0B", "#10B981", "#3B82F6", DARK]
-
-
-def chart_layout(**extra):
-    base = dict(
-        plot_bgcolor="white",
-        paper_bgcolor="white",
-        font=dict(color=DARK, family="Arial, sans-serif"),
-        margin=dict(l=0, r=0, t=30, b=0),
-    )
-    base.update(extra)
-    return base
-
-
-def kpi_card(col, value: str, label: str, color: str = RED) -> None:
-    col.markdown(
-        f"""
-        <div style="background:white;border-radius:14px;padding:22px 18px;
-                    box-shadow:0 2px 12px rgba(0,0,0,.08);text-align:center;">
-          <div style="height:4px;border-radius:2px;background:{color};
-                      margin-bottom:14px;"></div>
-          <div style="font-size:2rem;font-weight:700;color:#222;
-                      line-height:1.1;">{value}</div>
-          <div style="font-size:.75rem;color:{GRAY};text-transform:uppercase;
-                      letter-spacing:.06em;margin-top:6px;">{label}</div>
-        </div>
-        """,
-        unsafe_allow_html=True,
-    )
-
+# ── Custom CSS ────────────────────────────────────────────────────────────────
+st.markdown("""
+<style>
+    .main { background-color: #0f0f0f; }
+    .stApp { background-color: #0f0f0f; }
+    section[data-testid="stSidebar"] { background-color: #1a1a1a; }
+    .metric-card {
+        background: linear-gradient(135deg, #1e1e2e, #2a2a3e);
+        border: 1px solid #ff5a5f33;
+        border-radius: 12px;
+        padding: 20px;
+        text-align: center;
+    }
+    .metric-value { font-size: 2rem; font-weight: 700; color: #ff5a5f; }
+    .metric-label { font-size: 0.85rem; color: #aaa; margin-top: 4px; }
+    h1, h2, h3 { color: #ffffff !important; }
+    .stSelectbox label, .stSlider label, .stMultiSelect label { color: #ccc !important; }
+</style>
+""", unsafe_allow_html=True)
 
 # ── MongoDB connection ────────────────────────────────────────────────────────
-MONGO_URI = st.secrets.get("MONGODB_URI", os.getenv("MONGODB_URI"))
-
-if not MONGO_URI:
-    st.error("Missing MONGODB_URI. Add it to Streamlit secrets.")
-    st.stop()
-
-
 @st.cache_resource
 def get_client():
-    return MongoClient(MONGO_URI, tlsCAFile=certifi.where())
+    uri = os.getenv("MONGODB_URI", st.secrets.get("MONGODB_URI", ""))
+    if not uri:
+        st.error("❌ MONGODB_URI not set. Add it to `.env` (local) or Streamlit Secrets (cloud).")
+        st.stop()
+    return MongoClient(uri, serverSelectionTimeoutMS=8000)
 
-
-@st.cache_data(ttl=600)
+@st.cache_data(ttl=300, show_spinner="Loading data from MongoDB…")
 def load_data(limit: int = 5000) -> pd.DataFrame:
-    col = get_client()["sample_airbnb"]["listingsAndReviews"]
-    cursor = col.find(
-        {},
-        {
+    client = get_client()
+    col = client["sample_airbnb"]["listingsAndReviews"]
+    pipeline = [
+        {"$limit": limit},
+        {"$project": {
             "name": 1,
             "property_type": 1,
             "room_type": 1,
-            "price": 1,
-            "bedrooms": 1,
-            "number_of_reviews": 1,
+            "bed_type": 1,
             "cancellation_policy": 1,
-            "amenities": 1,
-            "review_scores": 1,
+            "accommodates": 1,
+            "bedrooms": 1,
+            "beds": 1,
+            "bathrooms": 1,
+            "price": 1,
+            "cleaning_fee": 1,
+            "number_of_reviews": 1,
+            "review_scores.review_scores_rating": 1,
+            "review_scores.review_scores_cleanliness": 1,
+            "review_scores.review_scores_location": 1,
             "host.host_is_superhost": 1,
-            "address.country": 1,
+            "host.host_response_time": 1,
             "address.market": 1,
-        },
-    ).limit(limit)
-
+            "address.country": 1,
+            "amenities": 1,
+            "minimum_nights": 1,
+        }},
+    ]
+    docs = list(col.aggregate(pipeline))
     rows = []
-    for doc in cursor:
-        rs   = doc.get("review_scores", {})
-        addr = doc.get("address", {})
-        host = doc.get("host", {})
-        rows.append(
-            {
-                "name":          doc.get("name", ""),
-                "property_type": doc.get("property_type", "Unknown"),
-                "room_type":     doc.get("room_type", "Unknown"),
-                "price":         float(str(doc.get("price", 0) or 0)),
-                "bedrooms":      int(doc.get("bedrooms", 0) or 0),
-                "reviews":       int(doc.get("number_of_reviews", 0) or 0),
-                "rating":        rs.get("review_scores_rating"),
-                "cleanliness":   rs.get("review_scores_cleanliness"),
-                "location_sc":   rs.get("review_scores_location"),
-                "value_sc":      rs.get("review_scores_value"),
-                "is_superhost":  bool(host.get("host_is_superhost", False)),
-                "amenities":     len(doc.get("amenities", [])),
-                "cancellation":  doc.get("cancellation_policy", "Unknown"),
-                "country":       addr.get("country", "Unknown"),
-                "market":        addr.get("market", "Unknown"),
-            }
-        )
+    for d in docs:
+        rs = d.get("review_scores", {})
+        addr = d.get("address", {})
+        host = d.get("host", {})
+        rows.append({
+            "name": d.get("name", ""),
+            "property_type": d.get("property_type", ""),
+            "room_type": d.get("room_type", ""),
+            "bed_type": d.get("bed_type", ""),
+            "cancellation_policy": d.get("cancellation_policy", ""),
+            "accommodates": int(d.get("accommodates", 0) or 0),
+            "bedrooms": int(d.get("bedrooms", 0) or 0),
+            "beds": int(d.get("beds", 0) or 0),
+            "bathrooms": float(str(d.get("bathrooms", 0) or 0)),
+            "price": float(str(d.get("price", 0) or 0)),
+            "cleaning_fee": float(str(d.get("cleaning_fee", 0) or 0)),
+            "number_of_reviews": int(d.get("number_of_reviews", 0) or 0),
+            "rating": rs.get("review_scores_rating", None),
+            "cleanliness_score": rs.get("review_scores_cleanliness", None),
+            "location_score": rs.get("review_scores_location", None),
+            "is_superhost": bool(host.get("host_is_superhost", False)),
+            "response_time": host.get("host_response_time", ""),
+            "market": addr.get("market", "Unknown"),
+            "country": addr.get("country", "Unknown"),
+            "amenity_count": len(d.get("amenities", [])),
+            "minimum_nights": int(d.get("minimum_nights", 1) or 1),
+        })
     return pd.DataFrame(rows)
 
-
 # ── Load data ─────────────────────────────────────────────────────────────────
-with st.spinner("Loading data from MongoDB…"):
-    df = load_data()
+df_raw = load_data()
 
-if df.empty:
-    st.warning("No data found in sample_airbnb.listingsAndReviews")
-    st.stop()
-
-# ── Sidebar ───────────────────────────────────────────────────────────────────
+# ── Sidebar filters ───────────────────────────────────────────────────────────
 with st.sidebar:
-    st.markdown("## 🏠 Airbnb Analytics")
+    st.markdown("## 🔍 Filters")
+
+    countries = sorted(df_raw["country"].dropna().unique())
+    sel_countries = st.multiselect("Country", countries, default=countries[:5] if len(countries) > 5 else countries)
+
+    prop_types = sorted(df_raw["property_type"].dropna().unique())
+    sel_props = st.multiselect("Property Type", prop_types, default=["Apartment", "House"] if "Apartment" in prop_types else prop_types[:2])
+
+    room_types = sorted(df_raw["room_type"].dropna().unique())
+    sel_rooms = st.multiselect("Room Type", room_types, default=list(room_types))
+
+    price_max = int(df_raw["price"].quantile(0.98)) or 1000
+    price_range = st.slider("Price Range ($/night)", 0, price_max, (0, price_max))
+
+    min_reviews = st.slider("Minimum Reviews", 0, 100, 0)
+
+    superhost_only = st.checkbox("Superhosts Only", value=False)
+
     st.markdown("---")
-    st.markdown("### Filters")
+    st.caption("Data: MongoDB `sample_airbnb`")
 
-    countries  = st.multiselect(
-        "Country",
-        sorted(df["country"].dropna().unique()),
-        default=sorted(df["country"].dropna().unique()),
-    )
-    prop_types = st.multiselect(
-        "Property Type",
-        sorted(df["property_type"].dropna().unique()),
-        default=sorted(df["property_type"].dropna().unique()),
-    )
-    price_cap   = int(df["price"].quantile(0.95)) or 500
-    price_range = st.slider("Price / Night ($)", 0, price_cap, (0, price_cap))
-    min_rating  = st.slider("Minimum Rating", 0, 100, 0)
-    superhost   = st.checkbox("Superhosts Only")
+# ── Apply filters ─────────────────────────────────────────────────────────────
+df = df_raw.copy()
+if sel_countries:
+    df = df[df["country"].isin(sel_countries)]
+if sel_props:
+    df = df[df["property_type"].isin(sel_props)]
+if sel_rooms:
+    df = df[df["room_type"].isin(sel_rooms)]
+df = df[(df["price"] >= price_range[0]) & (df["price"] <= price_range[1])]
+df = df[df["number_of_reviews"] >= min_reviews]
+if superhost_only:
+    df = df[df["is_superhost"]]
 
-    st.markdown("---")
-    st.caption(f"Dataset: **{len(df):,}** listings")
-
-# ── Filter ────────────────────────────────────────────────────────────────────
-filt = df.copy()
-if countries:
-    filt = filt[filt["country"].isin(countries)]
-if prop_types:
-    filt = filt[filt["property_type"].isin(prop_types)]
-filt = filt[(filt["price"] >= price_range[0]) & (filt["price"] <= price_range[1])]
-filt = filt[filt["rating"].isna() | (filt["rating"] >= min_rating)]
-if superhost:
-    filt = filt[filt["is_superhost"]]
-
-# ── Page header ───────────────────────────────────────────────────────────────
+# ── Header ────────────────────────────────────────────────────────────────────
 st.markdown("# 🏠 Airbnb Analytics Dashboard")
-st.caption(
-    f"Showing **{len(filt):,}** of {len(df):,} listings · MongoDB `sample_airbnb`"
-)
+st.markdown(f"Showing **{len(df):,}** listings · *{len(df_raw):,} total loaded*")
+st.markdown("---")
 
-# ── KPI cards ─────────────────────────────────────────────────────────────────
-avg_price  = filt.loc[filt["price"] > 0, "price"].mean()
-avg_rating = filt["rating"].dropna().mean()
-sup_pct    = filt["is_superhost"].mean() * 100
+# ── KPI row ───────────────────────────────────────────────────────────────────
+c1, c2, c3, c4, c5 = st.columns(5)
+kpis = [
+    (c1, f"${df['price'].median():.0f}", "Median Price / Night"),
+    (c2, f"{df['rating'].dropna().mean():.1f} / 100", "Avg Rating"),
+    (c3, f"{df['is_superhost'].mean()*100:.1f}%", "Superhosts"),
+    (c4, f"{df['number_of_reviews'].median():.0f}", "Median Reviews"),
+    (c5, f"{df['amenity_count'].median():.0f}", "Median Amenities"),
+]
+for col, val, label in kpis:
+    col.markdown(f"""
+    <div class="metric-card">
+        <div class="metric-value">{val}</div>
+        <div class="metric-label">{label}</div>
+    </div>""", unsafe_allow_html=True)
 
-k1, k2, k3, k4, k5 = st.columns(5)
-kpi_card(k1, f"{len(filt):,}",                                        "Total Listings",    RED)
-kpi_card(k2, f"${avg_price:.0f}" if pd.notna(avg_price) else "—",     "Avg Price / Night", ORANGE)
-kpi_card(k3, f"{avg_rating:.1f}" if pd.notna(avg_rating) else "—",    "Avg Rating / 100",  TEAL)
-kpi_card(k4, f"{sup_pct:.1f}%" if pd.notna(sup_pct) else "—",          "Superhost Rate",    "#8B5CF6")
-kpi_card(k5, str(filt["country"].nunique()),                           "Countries",         DARK)
+st.markdown("###")
 
-st.markdown("<br>", unsafe_allow_html=True)
+# ── Row 1: Price distribution + Room type breakdown ───────────────────────────
+col_a, col_b = st.columns([3, 2])
 
-# ── Tabs ──────────────────────────────────────────────────────────────────────
-tab1, tab2, tab3, tab4, tab5 = st.tabs(
-    ["🌍 Overview", "💰 Price Analysis", "⭐ Ratings & Quality", "📍 Markets", "📋 Data Explorer"]
-)
-
-# ════════════════════════════════════════════════════════════════════════
-# Tab 1 — Overview
-# ════════════════════════════════════════════════════════════════════════
-with tab1:
-    st.subheader("Global Listings Distribution")
-    map_df = filt.groupby("country").size().reset_index(name="Listings")
-    fig = px.choropleth(
-        map_df,
-        locations="country",
-        locationmode="country names",
-        color="Listings",
-        color_continuous_scale="Reds",
-        labels={"Listings": "Listings"},
+with col_a:
+    st.markdown("### Price Distribution by Room Type")
+    df_price = df[df["price"] > 0]
+    fig_box = px.box(
+        df_price, x="room_type", y="price", color="room_type",
+        color_discrete_sequence=["#ff5a5f", "#fc642d", "#00a699", "#484848"],
+        labels={"price": "Price ($/night)", "room_type": "Room Type"},
     )
-    fig.update_layout(
-        **chart_layout(margin=dict(l=0, r=0, t=10, b=0)),
-        geo=dict(
-            showframe=False,
-            showcoastlines=True,
-            projection_type="natural earth",
-            bgcolor="white",
-        ),
+    fig_box.update_layout(
+        plot_bgcolor="#1a1a2e", paper_bgcolor="#1a1a2e",
+        font_color="#ccc", showlegend=False,
+        yaxis=dict(gridcolor="#333"), xaxis=dict(gridcolor="#333"),
+        margin=dict(l=10, r=10, t=10, b=10),
     )
-    st.plotly_chart(fig, use_container_width=True)
+    st.plotly_chart(fig_box, use_container_width=True)
 
-    col_a, col_b = st.columns(2)
-    with col_a:
-        st.subheader("Property Type Mix")
-        top8 = filt["property_type"].value_counts().head(8)
-        fig = px.pie(
-            values=top8.values,
-            names=top8.index,
-            hole=0.45,
-            color_discrete_sequence=SEQ_COLORS,
-        )
-        fig.update_traces(textposition="outside", textinfo="percent+label")
-        fig.update_layout(**chart_layout(), showlegend=False)
-        st.plotly_chart(fig, use_container_width=True)
-
-    with col_b:
-        st.subheader("Room Type Breakdown")
-        room_df = filt["room_type"].value_counts().reset_index()
-        room_df.columns = ["Room Type", "Listings"]
-        fig = px.bar(
-            room_df,
-            x="Room Type",
-            y="Listings",
-            color="Room Type",
-            color_discrete_sequence=SEQ_COLORS,
-            text="Listings",
-        )
-        fig.update_traces(textposition="outside")
-        fig.update_layout(**chart_layout(), showlegend=False)
-        st.plotly_chart(fig, use_container_width=True)
-
-# ════════════════════════════════════════════════════════════════════════
-# Tab 2 — Price Analysis
-# ════════════════════════════════════════════════════════════════════════
-with tab2:
-    df_price = filt[filt["price"] > 0]
-
-    col_a, col_b = st.columns([3, 2])
-    with col_a:
-        st.subheader("Price Distribution")
-        fig = px.histogram(
-            df_price,
-            x="price",
-            nbins=60,
-            color_discrete_sequence=[RED],
-            labels={"price": "Price ($/night)"},
-        )
-        fig.update_layout(**chart_layout())
-        st.plotly_chart(fig, use_container_width=True)
-
-    with col_b:
-        st.subheader("Price by Room Type")
-        fig = px.box(
-            df_price,
-            x="room_type",
-            y="price",
-            color="room_type",
-            color_discrete_sequence=SEQ_COLORS,
-            labels={"price": "Price ($/night)", "room_type": ""},
-        )
-        fig.update_layout(**chart_layout(), showlegend=False)
-        st.plotly_chart(fig, use_container_width=True)
-
-    st.subheader("Median Price by Country (Map)")
-    price_map = (
-        df_price.groupby("country")["price"]
-        .median()
-        .reset_index()
+with col_b:
+    st.markdown("### Property Type Mix")
+    top_props = df["property_type"].value_counts().head(8)
+    fig_pie = px.pie(
+        values=top_props.values, names=top_props.index,
+        color_discrete_sequence=px.colors.sequential.RdBu,
+        hole=0.45,
     )
-    price_map.columns = ["country", "Median Price ($/night)"]
-    fig = px.choropleth(
-        price_map,
-        locations="country",
-        locationmode="country names",
-        color="Median Price ($/night)",
-        color_continuous_scale="Oranges",
+    fig_pie.update_traces(textposition="outside", textinfo="percent+label")
+    fig_pie.update_layout(
+        plot_bgcolor="#1a1a2e", paper_bgcolor="#1a1a2e",
+        font_color="#ccc", showlegend=False,
+        margin=dict(l=10, r=10, t=10, b=10),
     )
-    fig.update_layout(
-        **chart_layout(margin=dict(l=0, r=0, t=10, b=0)),
-        geo=dict(showframe=False, showcoastlines=True, projection_type="natural earth", bgcolor="white"),
-    )
-    st.plotly_chart(fig, use_container_width=True)
+    st.plotly_chart(fig_pie, use_container_width=True)
 
-    col_a, col_b = st.columns(2)
-    with col_a:
-        st.subheader("Median Price by Property Type")
-        med = (
-            df_price.groupby("property_type")["price"]
-            .median()
-            .sort_values(ascending=False)
-            .reset_index()
-        )
-        med.columns = ["Property Type", "Median Price"]
-        fig = px.bar(
-            med,
-            x="Median Price",
-            y="Property Type",
-            orientation="h",
-            color="Median Price",
-            color_continuous_scale="Reds",
-        )
-        fig.update_layout(**chart_layout(), coloraxis_showscale=False, yaxis_title="")
-        st.plotly_chart(fig, use_container_width=True)
+# ── Row 2: Market avg price bar + Rating vs Price scatter ─────────────────────
+col_c, col_d = st.columns(2)
 
-    with col_b:
-        st.subheader("Price vs Bedrooms")
-        fig = px.box(
-            df_price[df_price["bedrooms"] <= 6],
-            x="bedrooms",
-            y="price",
-            color_discrete_sequence=[TEAL],
-            labels={"price": "Price ($/night)", "bedrooms": "Bedrooms"},
-        )
-        fig.update_layout(**chart_layout())
-        st.plotly_chart(fig, use_container_width=True)
-
-# ════════════════════════════════════════════════════════════════════════
-# Tab 3 — Ratings & Quality
-# ════════════════════════════════════════════════════════════════════════
-with tab3:
-    df_rated = filt[filt["rating"].notna()]
-
-    col_a, col_b = st.columns(2)
-    with col_a:
-        st.subheader("Rating Distribution")
-        fig = px.histogram(
-            df_rated,
-            x="rating",
-            nbins=40,
-            color_discrete_sequence=[TEAL],
-            labels={"rating": "Rating (out of 100)"},
-        )
-        fig.update_layout(**chart_layout())
-        st.plotly_chart(fig, use_container_width=True)
-
-    with col_b:
-        st.subheader("Rating vs Price")
-        df_sc_base = df_rated[df_rated["price"] > 0].copy()
-        df_sc_base["bubble"] = df_sc_base["reviews"].clip(lower=1)
-        df_sc = df_sc_base.sample(min(800, len(df_sc_base)), random_state=42)
-        fig = px.scatter(
-            df_sc,
-            x="price",
-            y="rating",
-            color="room_type",
-            size="bubble",
-            size_max=20,
-            hover_data=["name", "country", "market", "property_type", "reviews"],
-            opacity=0.7,
-            color_discrete_sequence=SEQ_COLORS,
-            labels={
-                "price": "Price ($/night)",
-                "rating": "Rating (/ 100)",
-                "room_type": "Room Type",
-                "bubble": "Reviews",
-            },
-        )
-        fig.update_layout(**chart_layout())
-        st.plotly_chart(fig, use_container_width=True)
-
-    st.markdown("---")
-    st.subheader("Superhost vs Regular Host — Quality Comparison")
-
-    col_a, col_b = st.columns([2, 3])
-    with col_a:
-        summary = (
-            filt.groupby("is_superhost")[
-                ["rating", "cleanliness", "location_sc", "value_sc", "reviews"]
-            ]
-            .median()
-            .rename(index={True: "⭐ Superhost", False: "Regular Host"})
-            .round(1)
-        )
-        summary.columns = ["Rating", "Cleanliness", "Location", "Value", "Reviews"]
-        st.dataframe(summary, use_container_width=True)
-
-    with col_b:
-        cats = ["Rating", "Cleanliness (×10)", "Location (×10)", "Value (×10)"]
-
-        def _m(series) -> float:
-            v = series.dropna().median()
-            return float(v) if pd.notna(v) else 0.0
-
-        fig_r = go.Figure()
-        for is_super, label, color in [
-            (True,  "Superhost",    RED),
-            (False, "Regular Host", TEAL),
-        ]:
-            sub  = filt[filt["is_superhost"] == is_super]
-            vals = [
-                _m(sub["rating"]),
-                _m(sub["cleanliness"]) * 10,
-                _m(sub["location_sc"]) * 10,
-                _m(sub["value_sc"])    * 10,
-            ]
-            fig_r.add_trace(
-                go.Scatterpolar(
-                    r=vals + [vals[0]],
-                    theta=cats + [cats[0]],
-                    fill="toself",
-                    name=label,
-                    line_color=color,
-                    fillcolor=color,
-                    opacity=0.3,
-                )
-            )
-        fig_r.update_layout(
-            polar=dict(
-                bgcolor="#f9f9f9",
-                radialaxis=dict(visible=True, range=[0, 100]),
-            ),
-            paper_bgcolor="white",
-            margin=dict(l=20, r=20, t=20, b=30),
-            legend=dict(orientation="h", y=-0.15),
-        )
-        st.plotly_chart(fig_r, use_container_width=True)
-
-# ════════════════════════════════════════════════════════════════════════
-# Tab 4 — Markets
-# ════════════════════════════════════════════════════════════════════════
-with tab4:
-    col_a, col_b = st.columns(2)
-
-    with col_a:
-        st.subheader("Top 15 Markets by Listings")
-        top_m = filt["market"].value_counts().head(15).reset_index()
-        top_m.columns = ["Market", "Listings"]
-        fig = px.bar(
-            top_m,
-            x="Listings",
-            y="Market",
-            orientation="h",
-            color="Listings",
-            color_continuous_scale="Blues",
-        )
-        fig.update_layout(
-            **chart_layout(),
-            coloraxis_showscale=False,
-            yaxis=dict(autorange="reversed", title=""),
-        )
-        st.plotly_chart(fig, use_container_width=True)
-
-    with col_b:
-        st.subheader("Cancellation Policy Breakdown")
-        cancel_df = filt["cancellation"].value_counts().reset_index()
-        cancel_df.columns = ["Policy", "Listings"]
-        fig = px.pie(
-            cancel_df,
-            values="Listings",
-            names="Policy",
-            hole=0.45,
-            color_discrete_sequence=SEQ_COLORS,
-        )
-        fig.update_traces(textposition="outside", textinfo="percent+label")
-        fig.update_layout(**chart_layout(), showlegend=False)
-        st.plotly_chart(fig, use_container_width=True)
-
-    st.subheader("Median Price by Market — Top 20")
-    market_price = (
-        filt[filt["price"] > 0]
+with col_c:
+    st.markdown("### Average Price by Market")
+    market_avg = (
+        df[df["price"] > 0]
         .groupby("market")["price"]
-        .agg(["median", "count"])
-        .rename(columns={"median": "Median Price ($/night)", "count": "Listings"})
-        .query("Listings >= 5")
-        .sort_values("Median Price ($/night)", ascending=False)
-        .head(20)
+        .median()
+        .sort_values(ascending=False)
+        .head(15)
         .reset_index()
     )
-    fig = px.bar(
-        market_price,
-        x="Median Price ($/night)",
-        y="Market",
-        orientation="h",
-        color="Median Price ($/night)",
-        color_continuous_scale="Oranges",
-        hover_data=["Listings"],
+    fig_bar = px.bar(
+        market_avg, x="price", y="market", orientation="h",
+        color="price", color_continuous_scale="reds",
+        labels={"price": "Median Price ($/night)", "market": "Market"},
     )
-    fig.update_layout(
-        **chart_layout(),
-        coloraxis_showscale=False,
-        yaxis=dict(autorange="reversed", title=""),
+    fig_bar.update_layout(
+        plot_bgcolor="#1a1a2e", paper_bgcolor="#1a1a2e",
+        font_color="#ccc", coloraxis_showscale=False,
+        yaxis=dict(autorange="reversed", gridcolor="#333"),
+        xaxis=dict(gridcolor="#333"),
+        margin=dict(l=10, r=10, t=10, b=10),
     )
-    st.plotly_chart(fig, use_container_width=True)
+    st.plotly_chart(fig_bar, use_container_width=True)
 
-    st.subheader("Amenity Count Distribution")
-    fig = px.histogram(
-        filt,
-        x="amenities",
-        nbins=30,
-        color_discrete_sequence=[ORANGE],
-        labels={"amenities": "Number of Amenities"},
+with col_d:
+    st.markdown("### Rating vs Price")
+    df_scatter = df[(df["price"] > 0) & (df["rating"].notna())].sample(min(800, len(df)))
+    fig_scatter = px.scatter(
+        df_scatter, x="price", y="rating",
+        color="room_type", size="number_of_reviews",
+        size_max=20, opacity=0.7,
+        color_discrete_sequence=["#ff5a5f", "#fc642d", "#00a699", "#484848"],
+        labels={"price": "Price ($/night)", "rating": "Overall Rating"},
     )
-    fig.update_layout(**chart_layout())
-    st.plotly_chart(fig, use_container_width=True)
-
-# ════════════════════════════════════════════════════════════════════════
-# Tab 5 — Data Explorer
-# ════════════════════════════════════════════════════════════════════════
-with tab5:
-    st.subheader("Listings Explorer")
-
-    search = st.text_input(
-        "Search by name, country, or market",
-        placeholder="e.g. Cozy Apartment, Hong Kong…",
+    fig_scatter.update_layout(
+        plot_bgcolor="#1a1a2e", paper_bgcolor="#1a1a2e",
+        font_color="#ccc",
+        xaxis=dict(gridcolor="#333"),
+        yaxis=dict(gridcolor="#333"),
+        legend=dict(bgcolor="#1a1a2e", bordercolor="#333"),
+        margin=dict(l=10, r=10, t=10, b=10),
     )
-    display = filt.copy()
-    if search:
-        mask = (
-            display["name"].str.contains(search, case=False, na=False)
-            | display["country"].str.contains(search, case=False, na=False)
-            | display["market"].str.contains(search, case=False, na=False)
-        )
-        display = display[mask]
+    st.plotly_chart(fig_scatter, use_container_width=True)
 
-    st.caption(f"{len(display):,} results")
+# ── Row 3: Cancellation policy + Amenity count histogram ──────────────────────
+col_e, col_f = st.columns(2)
+
+with col_e:
+    st.markdown("### Cancellation Policy Distribution")
+    cancel_counts = df["cancellation_policy"].value_counts().reset_index()
+    cancel_counts.columns = ["policy", "count"]
+    fig_cancel = px.bar(
+        cancel_counts, x="policy", y="count", color="policy",
+        color_discrete_sequence=["#ff5a5f", "#fc642d", "#00a699", "#767676", "#484848"],
+        labels={"policy": "Policy", "count": "Listings"},
+    )
+    fig_cancel.update_layout(
+        plot_bgcolor="#1a1a2e", paper_bgcolor="#1a1a2e",
+        font_color="#ccc", showlegend=False,
+        xaxis=dict(gridcolor="#333"), yaxis=dict(gridcolor="#333"),
+        margin=dict(l=10, r=10, t=10, b=10),
+    )
+    st.plotly_chart(fig_cancel, use_container_width=True)
+
+with col_f:
+    st.markdown("### Amenity Count Distribution")
+    fig_hist = px.histogram(
+        df, x="amenity_count", nbins=30,
+        color_discrete_sequence=["#00a699"],
+        labels={"amenity_count": "Number of Amenities", "count": "Listings"},
+    )
+    fig_hist.update_layout(
+        plot_bgcolor="#1a1a2e", paper_bgcolor="#1a1a2e",
+        font_color="#ccc", bargap=0.05,
+        xaxis=dict(gridcolor="#333"), yaxis=dict(gridcolor="#333"),
+        margin=dict(l=10, r=10, t=10, b=10),
+    )
+    st.plotly_chart(fig_hist, use_container_width=True)
+
+# ── Row 4: Superhost comparison radar ────────────────────────────────────────
+st.markdown("### Superhost vs Regular Host — Score Comparison")
+col_g, col_h = st.columns([2, 3])
+
+with col_g:
+    host_summary = (
+        df.groupby("is_superhost")[["rating", "cleanliness_score", "location_score", "price", "number_of_reviews"]]
+        .median()
+        .rename(index={True: "Superhost", False: "Regular Host"})
+        .round(1)
+    )
+    host_summary.columns = ["Rating", "Cleanliness", "Location", "Price", "Reviews"]
     st.dataframe(
-        display[
-            [
-                "name", "country", "market", "property_type", "room_type",
-                "price", "bedrooms", "rating", "cleanliness", "location_sc",
-                "reviews", "is_superhost", "amenities", "cancellation",
-            ]
-        ]
-        .rename(
-            columns={
-                "property_type": "type",
-                "room_type":     "room",
-                "location_sc":   "location",
-                "reviews":       "# reviews",
-                "is_superhost":  "superhost",
-                "cancellation":  "cancel policy",
-            }
-        )
-        .sort_values("rating", ascending=False)
-        .reset_index(drop=True),
+        host_summary.style.background_gradient(cmap="Reds", axis=None),
         use_container_width=True,
-        height=450,
     )
 
-    st.download_button(
-        "⬇️ Download filtered data as CSV",
-        display.to_csv(index=False),
-        file_name="airbnb_filtered.csv",
-        mime="text/csv",
+with col_h:
+    categories = ["Rating", "Cleanliness", "Location", "Reviews (norm)"]
+    fig_radar = go.Figure()
+    for is_super, label, color in [(True, "Superhost", "#ff5a5f"), (False, "Regular Host", "#00a699")]:
+        sub = df[df["is_superhost"] == is_super]
+        vals = [
+            sub["rating"].median() or 0,
+            (sub["cleanliness_score"].median() or 0) * 10,
+            (sub["location_score"].median() or 0) * 10,
+            min(sub["number_of_reviews"].median() or 0, 100),
+        ]
+        fig_radar.add_trace(go.Scatterpolar(
+            r=vals + [vals[0]], theta=categories + [categories[0]],
+            fill="toself", name=label,
+            line_color=color, fillcolor=color,
+            opacity=0.35,
+        ))
+    fig_radar.update_layout(
+        polar=dict(
+            bgcolor="#1a1a2e",
+            radialaxis=dict(visible=True, range=[0, 100], gridcolor="#444", color="#888"),
+            angularaxis=dict(gridcolor="#444", color="#ccc"),
+        ),
+        paper_bgcolor="#1a1a2e", font_color="#ccc",
+        legend=dict(bgcolor="#1a1a2e", bordercolor="#333"),
+        margin=dict(l=40, r=40, t=20, b=20),
     )
+    st.plotly_chart(fig_radar, use_container_width=True)
+
+# ── Row 5: Top listings table ─────────────────────────────────────────────────
+st.markdown("### Top-Rated Listings (min. 20 reviews)")
+top = (
+    df[df["number_of_reviews"] >= 20]
+    .sort_values("rating", ascending=False)
+    .head(10)[["name", "market", "country", "property_type", "room_type", "price", "rating", "number_of_reviews", "amenity_count"]]
+    .rename(columns={
+        "name": "Name", "market": "Market", "country": "Country",
+        "property_type": "Type", "room_type": "Room",
+        "price": "Price/Night", "rating": "Rating",
+        "number_of_reviews": "Reviews", "amenity_count": "Amenities",
+    })
+    .reset_index(drop=True)
+)
+st.dataframe(top, use_container_width=True, height=380)
+
+st.markdown("---")
+st.caption("Built with Streamlit · MongoDB Atlas `sample_airbnb` · Credentials loaded from environment variables / Streamlit Secrets")
