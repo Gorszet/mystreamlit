@@ -33,49 +33,17 @@ def chart_layout(**extra):
     )
 
 
-# ── Professional CSS ──────────────────────────────────────────────────────────
-st.markdown(
-    f"""
-<style>
-  .kpi-wrap {{
-    background: white;
-    border-radius: 14px;
-    padding: 22px 18px;
-    box-shadow: 0 2px 12px rgba(0,0,0,.08);
-    text-align: center;
-    height: 100%;
-  }}
-  .kpi-value {{
-    font-size: 2rem;
-    font-weight: 700;
-    color: #222;
-    line-height: 1.1;
-  }}
-  .kpi-label {{
-    font-size: .75rem;
-    color: {GRAY};
-    text-transform: uppercase;
-    letter-spacing: .06em;
-    margin-top: 6px;
-  }}
-  .kpi-bar {{
-    height: 4px;
-    border-radius: 2px;
-    margin-bottom: 14px;
-  }}
-</style>
-""",
-    unsafe_allow_html=True,
-)
-
-
 def kpi_card(col, value: str, label: str, color: str = RED) -> None:
     col.markdown(
         f"""
-        <div class="kpi-wrap">
-          <div class="kpi-bar" style="background:{color};"></div>
-          <div class="kpi-value">{value}</div>
-          <div class="kpi-label">{label}</div>
+        <div style="background:white;border-radius:14px;padding:22px 18px;
+                    box-shadow:0 2px 12px rgba(0,0,0,.08);text-align:center;">
+          <div style="height:4px;border-radius:2px;background:{color};
+                      margin-bottom:14px;"></div>
+          <div style="font-size:2rem;font-weight:700;color:#222;
+                      line-height:1.1;">{value}</div>
+          <div style="font-size:.75rem;color:{GRAY};text-transform:uppercase;
+                      letter-spacing:.06em;margin-top:6px;">{label}</div>
         </div>
         """,
         unsafe_allow_html=True,
@@ -201,7 +169,7 @@ k1, k2, k3, k4, k5 = st.columns(5)
 kpi_card(k1, f"{len(filt):,}",                                        "Total Listings",    RED)
 kpi_card(k2, f"${avg_price:.0f}" if pd.notna(avg_price) else "—",     "Avg Price / Night", ORANGE)
 kpi_card(k3, f"{avg_rating:.1f}" if pd.notna(avg_rating) else "—",    "Avg Rating / 100",  TEAL)
-kpi_card(k4, f"{sup_pct:.1f}%",                                        "Superhost Rate",    "#8B5CF6")
+kpi_card(k4, f"{sup_pct:.1f}%" if pd.notna(sup_pct) else "—",          "Superhost Rate",    "#8B5CF6")
 kpi_card(k5, str(filt["country"].nunique()),                           "Countries",         DARK)
 
 st.markdown("<br>", unsafe_allow_html=True)
@@ -372,23 +340,24 @@ with tab3:
 
     with col_b:
         st.subheader("Rating vs Price")
-        df_sc = df_rated[df_rated["price"] > 0].sample(
-            min(800, len(df_rated)), random_state=42
-        )
+        df_sc_base = df_rated[df_rated["price"] > 0].copy()
+        df_sc_base["bubble"] = df_sc_base["reviews"].clip(lower=1)
+        df_sc = df_sc_base.sample(min(800, len(df_sc_base)), random_state=42)
         fig = px.scatter(
             df_sc,
             x="price",
             y="rating",
             color="room_type",
-            size="reviews",
+            size="bubble",
             size_max=20,
-            hover_data=["name", "country", "market", "property_type"],
+            hover_data=["name", "country", "market", "property_type", "reviews"],
             opacity=0.7,
             color_discrete_sequence=SEQ_COLORS,
             labels={
                 "price": "Price ($/night)",
                 "rating": "Rating (/ 100)",
                 "room_type": "Room Type",
+                "bubble": "Reviews",
             },
         )
         fig.update_layout(**chart_layout())
@@ -408,13 +377,15 @@ with tab3:
             .round(1)
         )
         summary.columns = ["Rating", "Cleanliness", "Location", "Value", "Reviews"]
-        st.dataframe(
-            summary.style.highlight_max(axis=0, color="#d4f8ee"),
-            use_container_width=True,
-        )
+        st.dataframe(summary, use_container_width=True)
 
     with col_b:
         cats = ["Rating", "Cleanliness (×10)", "Location (×10)", "Value (×10)"]
+
+        def _m(series) -> float:
+            v = series.dropna().median()
+            return float(v) if pd.notna(v) else 0.0
+
         fig_r = go.Figure()
         for is_super, label, color in [
             (True,  "Superhost",    RED),
@@ -422,10 +393,10 @@ with tab3:
         ]:
             sub  = filt[filt["is_superhost"] == is_super]
             vals = [
-                sub["rating"].median()       or 0,
-                (sub["cleanliness"].median()  or 0) * 10,
-                (sub["location_sc"].median()  or 0) * 10,
-                (sub["value_sc"].median()     or 0) * 10,
+                _m(sub["rating"]),
+                _m(sub["cleanliness"]) * 10,
+                _m(sub["location_sc"]) * 10,
+                _m(sub["value_sc"])    * 10,
             ]
             fig_r.add_trace(
                 go.Scatterpolar(
@@ -493,13 +464,13 @@ with tab4:
     market_price = (
         filt[filt["price"] > 0]
         .groupby("market")["price"]
-        .agg(median="median", count="count")
-        .query("count >= 5")
-        .sort_values("median", ascending=False)
+        .agg(["median", "count"])
+        .rename(columns={"median": "Median Price ($/night)", "count": "Listings"})
+        .query("Listings >= 5")
+        .sort_values("Median Price ($/night)", ascending=False)
         .head(20)
         .reset_index()
     )
-    market_price.columns = ["Market", "Median Price ($/night)", "Listings"]
     fig = px.bar(
         market_price,
         x="Median Price ($/night)",
